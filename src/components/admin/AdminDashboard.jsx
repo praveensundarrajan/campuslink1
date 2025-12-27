@@ -150,6 +150,22 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleReportAction = async (reportId, newStatus, actionTaken) => {
+    const adminNotes = prompt(`Notes about this ${actionTaken} action:`);
+    if (adminNotes === null) return; // User cancelled
+    
+    try {
+      await updateChatReportStatus(reportId, newStatus, adminNotes, actionTaken, user.email);
+      alert(`Report ${newStatus}. Action: ${actionTaken}`);
+      setSelectedReport(null);
+      // Reload reports
+      loadChatReports();
+    } catch (error) {
+      console.error('Error updating report:', error);
+      alert('Failed to update report: ' + error.message);
+    }
+  };
+
   const formatDate = (timestamp) => {
     if (!timestamp) return '';
     const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
@@ -229,6 +245,12 @@ export default function AdminDashboard() {
               onClick={() => setActiveTab('chats')}
             >
               💬 Chat Metadata
+            </button>
+            <button
+              className={`admin-tab ${activeTab === 'reports' ? 'active' : ''}`}
+              onClick={() => setActiveTab('reports')}
+            >
+              🚩 Chat Reports
             </button>
           </div>
 
@@ -502,8 +524,208 @@ export default function AdminDashboard() {
               </div>
             </>
           )}
+
+          {/* CHAT REPORTS TAB */}
+          {activeTab === 'reports' && (
+            <>
+              {/* Statistics Cards */}
+              {chatReportStats && (
+                <div className="stats-grid">
+                  <div className="stat-card">
+                    <div className="stat-label">Total Reports</div>
+                    <div className="stat-value">{chatReportStats.total}</div>
+                  </div>
+                  <div className="stat-card stat-open">
+                    <div className="stat-label">Pending</div>
+                    <div className="stat-value">{chatReportStats.pending}</div>
+                  </div>
+                  <div className="stat-card stat-review">
+                    <div className="stat-label">Reviewed</div>
+                    <div className="stat-value">{chatReportStats.reviewed}</div>
+                  </div>
+                  <div className="stat-card stat-resolved">
+                    <div className="stat-label">Action Taken</div>
+                    <div className="stat-value">{chatReportStats.actionTaken}</div>
+                  </div>
+                </div>
+              )}
+
+              <div className="section-card">
+                <h2>Reported Chats</h2>
+                <p className="text-muted mb-lg">
+                  Users can report chats for inappropriate content. You can review the full conversation and take action.
+                </p>
+
+                {loading ? (
+                  <div className="loading-container">
+                    <div className="spinner"></div>
+                  </div>
+                ) : chatReports.length === 0 ? (
+                  <div className="empty-state">
+                    <p className="text-muted">No chat reports yet. Users can report inappropriate chats for review.</p>
+                  </div>
+                ) : (
+                  <div className="table-container">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Reported By</th>
+                          <th>Reason</th>
+                          <th>Messages</th>
+                          <th>Status</th>
+                          <th>Reported At</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {chatReports.map(report => (
+                          <tr key={report.id}>
+                            <td>
+                              <code className="text-small">{report.reporterId?.substring(0, 12)}...</code>
+                            </td>
+                            <td>
+                              <div style={{ maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {report.reason?.substring(0, 100)}
+                                {report.reason?.length > 100 && '...'}
+                              </div>
+                            </td>
+                            <td className="text-center">
+                              <span className="badge">{report.messageCount || report.messages?.length || 0}</span>
+                            </td>
+                            <td>
+                              <span className={`badge badge-${
+                                report.status === 'pending' ? 'warning' :
+                                report.status === 'reviewed' ? 'info' :
+                                'success'
+                              }`}>
+                                {report.status}
+                              </span>
+                            </td>
+                            <td className="text-small">{formatDate(report.createdAt)}</td>
+                            <td>
+                              <button
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => setSelectedReport(report)}
+                              >
+                                View Details
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </div>
       </main>
+
+      {/* Report Details Modal */}
+      {selectedReport && (
+        <div className="modal-overlay" onClick={() => setSelectedReport(null)}>
+          <div className="modal modal-large" onClick={(e) => e.stopPropagation()}>
+            <h3>🚩 Chat Report Details</h3>
+            
+            <div className="report-details">
+              <div className="report-info-grid">
+                <div className="report-info-item">
+                  <strong>Reported By:</strong>
+                  <code>{selectedReport.reporterId}</code>
+                </div>
+                <div className="report-info-item">
+                  <strong>Chat ID:</strong>
+                  <code>{selectedReport.chatRoomId}</code>
+                </div>
+                <div className="report-info-item">
+                  <strong>Status:</strong>
+                  <span className={`badge badge-${
+                    selectedReport.status === 'pending' ? 'warning' :
+                    selectedReport.status === 'reviewed' ? 'info' :
+                    'success'
+                  }`}>
+                    {selectedReport.status}
+                  </span>
+                </div>
+                <div className="report-info-item">
+                  <strong>Reported At:</strong>
+                  {formatDate(selectedReport.createdAt)}
+                </div>
+              </div>
+
+              <div className="report-section">
+                <h4>Reason for Reporting:</h4>
+                <div className="report-reason-box">
+                  {selectedReport.reason}
+                </div>
+              </div>
+
+              <div className="report-section">
+                <h4>Participants:</h4>
+                <div className="participants-list">
+                  {selectedReport.participants?.map((userId, idx) => (
+                    <code key={idx} className="participant-badge">{userId}</code>
+                  ))}
+                </div>
+              </div>
+
+              <div className="report-section">
+                <h4>Full Conversation ({selectedReport.messages?.length || 0} messages):</h4>
+                <div className="chat-history">
+                  {selectedReport.messages?.length > 0 ? (
+                    selectedReport.messages.map((msg, idx) => (
+                      <div key={idx} className="chat-message-item">
+                        <div className="message-header">
+                          <code className="message-sender">{msg.senderId?.substring(0, 12)}...</code>
+                          <span className="message-time">{msg.createdAt}</span>
+                        </div>
+                        <div className="message-text">{msg.text}</div>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-muted">No messages in this report.</p>
+                  )}
+                </div>
+              </div>
+
+              {selectedReport.adminNotes && (
+                <div className="report-section">
+                  <h4>Admin Notes:</h4>
+                  <div className="admin-notes-box">
+                    {selectedReport.adminNotes}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="modal-actions">
+              {selectedReport.status === 'pending' && (
+                <>
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => handleReportAction(selectedReport.id, 'reviewed', 'warning')}
+                  >
+                    Mark Reviewed
+                  </button>
+                  <button
+                    className="btn btn-danger"
+                    onClick={() => handleReportAction(selectedReport.id, 'action_taken', 'chat_deleted')}
+                  >
+                    Take Action
+                  </button>
+                </>
+              )}
+              <button 
+                className="btn btn-secondary"
+                onClick={() => setSelectedReport(null)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Update Status Modal */}
       {selectedIssue && (

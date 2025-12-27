@@ -96,5 +96,20 @@ service cloud.firestore {
       // EXPLICIT BLOCK: Admins cannot access messages under any circumstance
       allow read, write: if !isAdmin();
     }
+    
+    // Chat Reports - Safety reporting system
+    match /chatReports/{reportId} {
+      // Regular users can create reports (NOT admins)
+      allow create: if isSignedIn() && !isAdmin();
+      
+      // Only admins can read reports
+      allow read: if isAdmin();
+      
+      // Only admins can update reports (mark as reviewed, add notes)
+      allow update: if isAdmin();
+      
+      // Only admins can delete reports
+      allow delete: if isAdmin();
+    }
   }
 }

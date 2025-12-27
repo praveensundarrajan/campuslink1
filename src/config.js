@@ -3,7 +3,7 @@
 // Get them from: Firebase Console > Project Settings > General > Your apps
 
 export const firebaseConfig = {
-   apiKey: "AIzaSyBfmC-a4N1CycpY4Ogu06zkaAtNmpvlwLg",
+  apiKey: "AIzaSyBfmC-a4N1CycpY4Ogu06zkaAtNmpvlwLg",
     authDomain: "pr1123.firebaseapp.com",
     projectId: "pr1123",
     storageBucket: "pr1123.firebasestorage.app",

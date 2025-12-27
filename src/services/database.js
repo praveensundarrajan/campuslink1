@@ -852,19 +852,29 @@ export async function reportChat(chatRoomId, reporterId, reason) {
   
   try {
     // Get all messages from this chat for admin review
+    // Use simple query without orderBy to avoid index requirement
     const messagesQuery = query(
       collection(db, 'messages'),
-      where('chatRoomId', '==', chatRoomId),
-      orderBy('createdAt', 'asc')
+      where('chatRoomId', '==', chatRoomId)
     );
     
     const messagesSnapshot = await getDocs(messagesQuery);
     const messages = messagesSnapshot.docs.map(doc => ({
       id: doc.id,
-      ...doc.data(),
+      senderId: doc.data().senderId,
+      text: doc.data().text,
       // Convert timestamp to ISO string for storage
       createdAt: doc.data().createdAt?.toDate?.()?.toISOString() || new Date().toISOString()
     }));
+    
+    // Sort in memory by timestamp
+    messages.sort((a, b) => {
+      const aTime = new Date(a.createdAt).getTime();
+      const bTime = new Date(b.createdAt).getTime();
+      return aTime - bTime; // Ascending order (oldest first)
+    });
+    
+    console.log('[DB] Captured', messages.length, 'messages for report');
     
     // Get chat room info
     const chatRoomDoc = await getDoc(doc(db, 'chatRooms', chatRoomId));
@@ -877,6 +887,7 @@ export async function reportChat(chatRoomId, reporterId, reason) {
       reason,
       participants: chatRoomData.participants || [],
       messages, // Full chat history for context
+      messageCount: messages.length,
       status: 'pending', // pending, reviewed, action_taken
       createdAt: serverTimestamp(),
       reviewedAt: null,
@@ -885,12 +896,16 @@ export async function reportChat(chatRoomId, reporterId, reason) {
       actionTaken: '' // warning, chat_deleted, users_suspended, no_action
     };
     
+    console.log('[DB] Creating report with', report.messageCount, 'messages');
+    
     const reportRef = await addDoc(collection(db, 'chatReports'), report);
     console.log('[DB] ✅ Chat reported successfully:', reportRef.id);
     
     return { id: reportRef.id, ...report };
   } catch (error) {
     console.error('[DB] ❌ Error reporting chat:', error);
+    console.error('[DB] Error code:', error.code);
+    console.error('[DB] Error message:', error.message);
     throw new Error(`Failed to report chat: ${error.message}`);
   }
 }
@@ -899,13 +914,18 @@ export async function reportChat(chatRoomId, reporterId, reason) {
  * Get all chat reports (admin only)
  */
 export async function getAllChatReports() {
-  const q = query(
-    collection(db, 'chatReports'),
-    orderBy('createdAt', 'desc')
-  );
+  // Simple query without orderBy to avoid index requirement
+  const snapshot = await getDocs(collection(db, 'chatReports'));
+  const reports = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
   
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  // Sort in memory by createdAt (newest first)
+  reports.sort((a, b) => {
+    const aTime = a.createdAt?.toMillis?.() || 0;
+    const bTime = b.createdAt?.toMillis?.() || 0;
+    return bTime - aTime;
+  });
+  
+  return reports;
 }
 
 /**
@@ -914,12 +934,20 @@ export async function getAllChatReports() {
 export async function getPendingChatReports() {
   const q = query(
     collection(db, 'chatReports'),
-    where('status', '==', 'pending'),
-    orderBy('createdAt', 'desc')
+    where('status', '==', 'pending')
   );
   
   const snapshot = await getDocs(q);
-  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  const reports = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  
+  // Sort in memory
+  reports.sort((a, b) => {
+    const aTime = a.createdAt?.toMillis?.() || 0;
+    const bTime = b.createdAt?.toMillis?.() || 0;
+    return bTime - aTime;
+  });
+  
+  return reports;
 }
 
 /**

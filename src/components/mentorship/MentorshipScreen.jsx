@@ -4,12 +4,14 @@ import { useAuth } from '../../contexts/AuthContext';
 import { searchMentors } from '../../services/database';
 import { parseSearchQuery } from '../../services/gemini';
 import MentorCard from './MentorCard';
+import EmptyState from '../common/EmptyState';
+import LoadingState from '../common/LoadingState';
 import './MentorshipScreen.css';
 
 export default function MentorshipScreen() {
   const navigate = useNavigate();
   const { user, profile } = useAuth();
-  
+
   const [searchQuery, setSearchQuery] = useState('');
   const [mentors, setMentors] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -25,10 +27,10 @@ export default function MentorshipScreen() {
   const handleSearch = async (useProfileSkills = false) => {
     setLoading(true);
     setSearched(true);
-    
+
     try {
       let skills = [];
-      
+
       if (useProfileSkills && profile?.skillsWanted) {
         skills = profile.skillsWanted;
       } else if (searchQuery.trim()) {
@@ -37,7 +39,7 @@ export default function MentorshipScreen() {
       } else {
         skills = profile?.skillsWanted || [];
       }
-      
+
       const results = await searchMentors(user.uid, searchQuery, skills);
       setMentors(results);
     } catch (error) {
@@ -51,7 +53,7 @@ export default function MentorshipScreen() {
     <div className="mentorship-screen">
       <div className="mentorship-header">
         <div className="container">
-          <button 
+          <button
             className="btn btn-text"
             onClick={() => navigate(-1)}
           >
@@ -76,7 +78,7 @@ export default function MentorshipScreen() {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
               />
-              <button 
+              <button
                 className="btn btn-primary"
                 onClick={() => handleSearch()}
                 disabled={loading}
@@ -87,18 +89,15 @@ export default function MentorshipScreen() {
           </div>
 
           {loading && (
-            <div className="loading-container">
-              <div className="spinner"></div>
-              <p className="text-muted">Finding matches...</p>
-            </div>
+            <LoadingState text="Consulting Gemini AI to find your perfect match..." />
           )}
 
           {!loading && searched && mentors.length === 0 && (
-            <div className="empty-state">
-              <p className="text-muted">
-                No mentors found. Try different skills or check back later.
-              </p>
-            </div>
+            <EmptyState
+              icon="🔍"
+              title="No Mentors Found"
+              description="We couldn't find a match for those exact skills. Try broader keywords like 'Coding' or 'Music'."
+            />
           )}
 
           {!loading && mentors.length > 0 && (
@@ -110,12 +109,11 @@ export default function MentorshipScreen() {
           )}
 
           {!searched && !loading && (
-            <div className="welcome-message">
-              <h3>Welcome to Mentorship Discovery</h3>
-              <p className="text-muted">
-                Search for skills you want to learn, or we'll suggest mentors based on your profile.
-              </p>
-            </div>
+            <EmptyState
+              icon="🎓"
+              title="Find Your Mentor"
+              description="Type a skill you want to learn (e.g. 'React', 'Public Speaking') and we'll use AI to find the best seniors for you."
+            />
           )}
         </div>
       </div>

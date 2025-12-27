@@ -1,21 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { 
-  getIssues, 
-  getMentorRequests, 
-  getChatRooms, 
-  respondToMentorRequest, 
+import {
+  getIssues,
+  getMentorRequests,
+  getChatRooms,
+  respondToMentorRequest,
   getProfile,
   subscribeToMentorRequests  // NEW: Import real-time subscription
 } from '../../services/database';
 import { formatDistance } from 'date-fns';
+import EmptyState from '../common/EmptyState';
+import LoadingState from '../common/LoadingState';
 import './ActivityScreen.css';
 
 export default function ActivityScreen() {
   const navigate = useNavigate();
   const { user, isAnonymous } = useAuth();
-  
+
   const [activeTab, setActiveTab] = useState('issues');
   const [issues, setIssues] = useState([]);
   const [requests, setRequests] = useState({ received: [], sent: [] });
@@ -41,23 +43,23 @@ export default function ActivityScreen() {
 
   useEffect(() => {
     if (!user) return;
-    
+
     setLoading(true);
-    
+
     // For mentor requests, use real-time subscriptions
     if (activeTab === 'requests' && !isAnonymous) {
       console.log('Setting up real-time subscriptions for mentor requests');
-      
+
       // Subscribe to received requests
       const unsubReceived = subscribeToMentorRequests(user.uid, 'received', (received) => {
         console.log('Received requests updated:', received);
-        
+
         // Subscribe to sent requests
         const unsubSent = subscribeToMentorRequests(user.uid, 'sent', (sent) => {
           console.log('Sent requests updated:', sent);
-          
+
           setRequests({ received, sent });
-          
+
           // Load profiles for all users in requests
           const userIds = new Set();
           received.forEach(req => {
@@ -68,15 +70,15 @@ export default function ActivityScreen() {
             if (req.senderId) userIds.add(req.senderId);
             if (req.receiverId) userIds.add(req.receiverId);
           });
-          
+
           // Load profiles
           loadUserProfiles(userIds);
           setLoading(false);
         });
-        
+
         return () => unsubSent();
       });
-      
+
       return () => unsubReceived();
     } else {
       loadData();
@@ -85,7 +87,7 @@ export default function ActivityScreen() {
 
   const loadData = async () => {
     if (!user) return;
-    
+
     setLoading(true);
     try {
       if (activeTab === 'issues') {
@@ -95,10 +97,10 @@ export default function ActivityScreen() {
         console.log('Loading mentor requests for user:', user.uid);
         const received = await getMentorRequests(user.uid, 'received');
         const sent = await getMentorRequests(user.uid, 'sent');
-        
+
         console.log('Received requests:', received);
         console.log('Sent requests:', sent);
-        
+
         // Load profiles for all users in requests
         const userIds = new Set();
         received.forEach(req => {
@@ -109,7 +111,7 @@ export default function ActivityScreen() {
           if (req.fromUserId) userIds.add(req.fromUserId);
           if (req.toUserId) userIds.add(req.toUserId);
         });
-        
+
         // Load profiles
         const profiles = {};
         for (const uid of userIds) {
@@ -123,13 +125,13 @@ export default function ActivityScreen() {
           }
         }
         setUserProfiles(profiles);
-        
+
         setRequests({ received, sent });
       } else if (activeTab === 'chats' && !isAnonymous) {
         console.log('Loading chat rooms for user:', user.uid);
         const rooms = await getChatRooms(user.uid);
         console.log('Chat rooms:', rooms);
-        
+
         // Load profiles for chat participants
         const userIds = new Set();
         rooms.forEach(room => {
@@ -137,7 +139,7 @@ export default function ActivityScreen() {
             if (p !== user.uid) userIds.add(p);
           });
         });
-        
+
         const profiles = {};
         for (const uid of userIds) {
           try {
@@ -148,7 +150,7 @@ export default function ActivityScreen() {
           }
         }
         setUserProfiles(profiles);
-        
+
         setChats(rooms);
       }
     } catch (error) {
@@ -209,7 +211,7 @@ export default function ActivityScreen() {
     <div className="activity-screen">
       <div className="activity-header">
         <div className="container">
-          <button 
+          <button
             className="btn btn-text"
             onClick={() => navigate(-1)}
           >
@@ -247,32 +249,29 @@ export default function ActivityScreen() {
           </div>
 
           {loading ? (
-            <div className="loading-container">
-              <div className="spinner"></div>
-              <p className="text-muted">Loading...</p>
-            </div>
+            <LoadingState text="Updating your activity feed..." />
           ) : (
             <div className="activity-content">
               {/* Issues Tab */}
               {activeTab === 'issues' && (
                 <div className="issues-list">
                   {issues.length === 0 ? (
-                    <div className="empty-state">
-                      <p className="text-muted">You haven't reported any issues yet.</p>
-                      <button 
-                        className="btn btn-primary mt-md"
-                        onClick={() => navigate('/issues/report')}
-                      >
-                        Report an Issue
-                      </button>
-                    </div>
+                    <EmptyState
+                      icon="📢"
+                      title="No Issues Reported"
+                      description="You haven't reported any problems yet. Help keep the campus safe and clean!"
+                      action={{
+                        label: "Report an Issue",
+                        onClick: () => navigate('/issues/report')
+                      }}
+                    />
                   ) : (
                     issues.map((issue) => (
                       <div key={issue.id} className="card issue-card">
                         <div className="issue-header">
                           <div className="issue-meta">
                             <span className="tag">{issue.category}</span>
-                            <span 
+                            <span
                               className="priority-badge"
                               style={{ backgroundColor: getPriorityColor(issue.priority) }}
                             >
@@ -303,13 +302,17 @@ export default function ActivityScreen() {
                 <div className="requests-section">
                   <h3>Received Requests</h3>
                   {requests.received?.length === 0 ? (
-                    <p className="text-muted mb-lg">No pending requests</p>
+                    <EmptyState
+                      icon="📥"
+                      title="No Received Requests"
+                      description="When students ask for your mentorship, they'll appear here."
+                    />
                   ) : (
                     <div className="requests-list">
                       {requests.received?.map((req) => {
                         const otherUserId = req.senderId; // Person who sent the request
                         const otherProfile = getOtherUserProfile(otherUserId);
-                        
+
                         return (
                           <div key={req.id} className="card request-card">
                             <div className="request-header">
@@ -346,13 +349,13 @@ export default function ActivityScreen() {
                             )}
                             {req.status === 'pending' && (
                               <div className="request-actions">
-                                <button 
+                                <button
                                   className="btn btn-primary btn-sm"
                                   onClick={() => handleAcceptRequest(req.id, true)}
                                 >
                                   Accept
                                 </button>
-                                <button 
+                                <button
                                   className="btn btn-secondary btn-sm"
                                   onClick={() => handleAcceptRequest(req.id, false)}
                                 >
@@ -380,7 +383,7 @@ export default function ActivityScreen() {
                       {requests.sent?.map((req) => {
                         const otherUserId = req.receiverId; // Person who received the request
                         const otherProfile = getOtherUserProfile(otherUserId);
-                        
+
                         return (
                           <div key={req.id} className="card request-card">
                             <div className="request-header">
@@ -401,11 +404,10 @@ export default function ActivityScreen() {
                                   </div>
                                 )}
                               </div>
-                              <span className={`tag ${
-                                req.status === 'pending' ? 'tag-warning' : 
-                                req.status === 'accepted' ? 'tag-primary' : 
-                                'tag'
-                              }`}>
+                              <span className={`tag ${req.status === 'pending' ? 'tag-warning' :
+                                req.status === 'accepted' ? 'tag-primary' :
+                                  'tag'
+                                }`}>
                                 {req.status}
                               </span>
                             </div>
@@ -416,7 +418,7 @@ export default function ActivityScreen() {
                               <p className="text-small text-muted">Waiting for response...</p>
                             )}
                             {req.status === 'accepted' && (
-                              <button 
+                              <button
                                 className="btn btn-primary btn-sm mt-sm"
                                 onClick={() => {
                                   // Find or create chat room
@@ -440,17 +442,18 @@ export default function ActivityScreen() {
               {activeTab === 'chats' && (
                 <div className="chats-list">
                   {chats.length === 0 ? (
-                    <div className="empty-state">
-                      <p className="text-muted">No active conversations yet.</p>
-                      <p className="text-muted mt-sm">Accept a mentor request to start chatting!</p>
-                    </div>
+                    <EmptyState
+                      icon="💬"
+                      title="No Conversations"
+                      description="Connect with a mentor to start chatting. Your conversations will appear here."
+                    />
                   ) : (
                     chats.map((chat) => {
                       const partner = getChatPartner(chat);
-                      
+
                       return (
-                        <div 
-                          key={chat.id} 
+                        <div
+                          key={chat.id}
                           className="card card-interactive chat-card"
                           onClick={() => navigate(`/chat/${chat.id}`)}
                         >

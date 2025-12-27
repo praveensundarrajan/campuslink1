@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import ErrorBoundary from './components/ErrorBoundary';
 
 // Components
 import SplashScreen from './components/auth/SplashScreen';
@@ -61,49 +62,49 @@ function AppRoutes() {
       {/* Public Routes */}
       <Route path="/" element={<SplashScreen />} />
       <Route path="/auth" element={<AuthScreen />} />
-      
+
       {/* Protected Routes */}
-      <Route 
-        path="/profile-setup" 
+      <Route
+        path="/profile-setup"
         element={
           <ProtectedRoute>
             <ProfileSetup />
           </ProtectedRoute>
-        } 
+        }
       />
-      
+
       <Route path="/home" element={<HomeScreen />} />
       <Route path="/issues/report" element={<IssueReport />} />
       <Route path="/activity" element={<ActivityScreen />} />
-      
+
       {/* Admin Route */}
-      <Route 
-        path="/admin" 
+      <Route
+        path="/admin"
         element={
           <ProtectedRoute requireAdmin>
             <AdminDashboard />
           </ProtectedRoute>
-        } 
+        }
       />
-      
-      <Route 
-        path="/mentorship" 
+
+      <Route
+        path="/mentorship"
         element={
           <ProtectedRoute requireProfile>
             <MentorshipScreen />
           </ProtectedRoute>
-        } 
+        }
       />
-      
-      <Route 
-        path="/chat/:chatId" 
+
+      <Route
+        path="/chat/:chatId"
         element={
           <ProtectedRoute requireProfile>
             <ChatScreen />
           </ProtectedRoute>
-        } 
+        }
       />
-      
+
       {/* Catch all */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
@@ -114,7 +115,9 @@ function App() {
   return (
     <Router>
       <AuthProvider>
-        <AppRoutes />
+        <ErrorBoundary>
+          <AppRoutes />
+        </ErrorBoundary>
       </AuthProvider>
     </Router>
   );

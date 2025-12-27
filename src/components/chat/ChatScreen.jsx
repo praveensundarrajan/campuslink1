@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { getMessages, sendMessage, subscribeToMessages } from '../../services/database';
+import { getMessages, sendMessage, subscribeToMessages, reportChat } from '../../services/database';
 import { formatDistance } from 'date-fns';
 import './ChatScreen.css';
 
@@ -15,6 +15,9 @@ export default function ChatScreen() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportReason, setReportReason] = useState('');
+  const [reporting, setReporting] = useState(false);
   
   const messagesEndRef = useRef(null);
 
@@ -85,6 +88,28 @@ export default function ChatScreen() {
     }
   };
 
+  const handleReport = async (e) => {
+    e.preventDefault();
+    if (!reportReason.trim() || reporting) return;
+
+    setReporting(true);
+    
+    try {
+      console.log('[Chat] Reporting chat...');
+      await reportChat(chatId, user.uid, reportReason.trim());
+      console.log('[Chat] ✅ Chat reported successfully');
+      
+      alert('Chat reported successfully. Admin will review it.');
+      setShowReportModal(false);
+      setReportReason('');
+    } catch (err) {
+      console.error('[Chat] ❌ Report error:', err);
+      alert('Failed to report chat: ' + err.message);
+    } finally {
+      setReporting(false);
+    }
+  };
+
   const formatTime = (timestamp) => {
     if (!timestamp) return '';
     const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
@@ -95,13 +120,22 @@ export default function ChatScreen() {
     <div className="chat-screen">
       <div className="chat-header">
         <div className="container">
-          <button 
-            className="btn btn-text"
-            onClick={() => navigate(-1)}
-          >
-            ← Back
-          </button>
-          <h3>Chat</h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+            <button 
+              className="btn btn-text"
+              onClick={() => navigate(-1)}
+            >
+              ← Back
+            </button>
+            <h3>Chat</h3>
+            <button 
+              className="btn btn-secondary"
+              onClick={() => setShowReportModal(true)}
+              style={{ fontSize: '12px', padding: '6px 12px' }}
+            >
+              🚩 Report
+            </button>
+          </div>
         </div>
       </div>
 
@@ -171,6 +205,64 @@ export default function ChatScreen() {
           </form>
         </div>
       </div>
+
+      {/* Report Modal */}
+      {showReportModal && (
+        <div className="modal-overlay" onClick={() => setShowReportModal(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Report Chat</h3>
+            <p className="text-muted mb-lg">
+              If this chat contains inappropriate content, harassment, or makes you feel unsafe, please report it.
+              Admin will review the entire chat history.
+            </p>
+
+            <form onSubmit={handleReport}>
+              <div className="form-group">
+                <label className="form-label">Reason for reporting *</label>
+                <textarea
+                  className="form-input"
+                  rows="4"
+                  placeholder="Please describe why you're reporting this chat..."
+                  value={reportReason}
+                  onChange={(e) => setReportReason(e.target.value)}
+                  required
+                  maxLength={500}
+                />
+                <p className="form-helper">
+                  {reportReason.length}/500 characters
+                </p>
+              </div>
+
+              <div className="alert alert-warning mb-md">
+                <strong>⚠️ Important:</strong> Admin will be able to see all messages in this chat to investigate your report.
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    setShowReportModal(false);
+                    setReportReason('');
+                  }}
+                  disabled={reporting}
+                  style={{ flex: 1 }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={!reportReason.trim() || reporting}
+                  style={{ flex: 1 }}
+                >
+                  {reporting ? 'Reporting...' : 'Submit Report'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

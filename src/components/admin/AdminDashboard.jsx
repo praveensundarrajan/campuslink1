@@ -9,7 +9,10 @@ import {
   getAllMentorRequestsForAdmin,
   getMentorRequestStats,
   getAllChatRoomsForAdmin,
-  getChatStats
+  getChatStats,
+  getAllChatReports,
+  getChatReportStats,
+  updateChatReportStatus
 } from '../../services/database';
 import { signOut } from '../../services/auth';
 import { formatDistance } from 'date-fns';
@@ -31,7 +34,9 @@ export default function AdminDashboard() {
   const [mentorStats, setMentorStats] = useState(null); // NEW
   const [chatRooms, setChatRooms] = useState([]); // NEW
   const [chatStats, setChatStats] = useState(null); // NEW
-  const [imageModal, setImageModal] = useState(null); // NEW: For image preview
+  const [chatReports, setChatReports] = useState([]); // NEW: Chat reports
+  const [chatReportStats, setChatReportStats] = useState(null); // NEW
+  const [selectedReport, setSelectedReport] = useState(null); // NEW: Selected report for viewing
 
   // Redirect if not admin
   useEffect(() => {
@@ -58,6 +63,9 @@ export default function AdminDashboard() {
     } else if (activeTab === 'chats') {
       // Load chat metadata
       loadChatMetadata();
+    } else if (activeTab === 'reports') {
+      // Load chat reports
+      loadChatReports();
     }
   }, [isAdmin, activeTab]);
 
@@ -84,6 +92,20 @@ export default function AdminDashboard() {
       setChatStats(stats);
     } catch (error) {
       console.error('Error loading chat metadata:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadChatReports = async () => {
+    setLoading(true);
+    try {
+      const reports = await getAllChatReports();
+      const stats = await getChatReportStats();
+      setChatReports(reports);
+      setChatReportStats(stats);
+    } catch (error) {
+      console.error('Error loading chat reports:', error);
     } finally {
       setLoading(false);
     }
@@ -300,19 +322,6 @@ export default function AdminDashboard() {
 
                   <p className="issue-description">{issue.description}</p>
 
-                  {issue.imageUrl && (
-                    <div className="issue-image-container">
-                      <img 
-                        src={issue.imageUrl} 
-                        alt="Issue" 
-                        className="issue-image"
-                        onClick={() => setImageModal(issue.imageUrl)}
-                        title="Click to view full size"
-                      />
-                      <span className="image-hint">Click to enlarge</span>
-                    </div>
-                  )}
-
                   {issue.summary && (
                     <div className="issue-summary">
                       <strong>AI Summary:</strong> {issue.summary}
@@ -495,21 +504,6 @@ export default function AdminDashboard() {
           )}
         </div>
       </main>
-
-      {/* Image Preview Modal */}
-      {imageModal && (
-        <div className="modal-overlay" onClick={() => setImageModal(null)}>
-          <div className="modal image-modal" onClick={(e) => e.stopPropagation()}>
-            <img src={imageModal} alt="Issue" className="modal-image" />
-            <button 
-              className="btn btn-secondary btn-block mt-md"
-              onClick={() => setImageModal(null)}
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Update Status Modal */}
       {selectedIssue && (

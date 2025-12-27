@@ -15,35 +15,9 @@ export default function IssueReport() {
     description: '',
     isAnonymous: isAnonymous || false
   });
-  const [imageFile, setImageFile] = useState(null);
-  const [imagePreview, setImagePreview] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
-
-  const handleImageChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      console.log('[Image] Selected file:', file.name, file.size, 'bytes');
-      
-      if (file.size > 5 * 1024 * 1024) {
-        setError('Image must be less than 5MB');
-        console.error('[Image] File too large:', file.size);
-        return;
-      }
-      
-      if (!file.type.startsWith('image/')) {
-        setError('Please select an image file');
-        console.error('[Image] Invalid file type:', file.type);
-        return;
-      }
-      
-      setImageFile(file);
-      const preview = URL.createObjectURL(file);
-      setImagePreview(preview);
-      console.log('[Image] ✅ Preview created');
-    }
-  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -51,29 +25,35 @@ export default function IssueReport() {
     setLoading(true);
 
     try {
+      // Validation
+      if (!formData.category) {
+        throw new Error('Please select a category');
+      }
+      
+      if (!formData.description || formData.description.trim().length === 0) {
+        throw new Error('Please enter a description');
+      }
+      
       if (formData.description.length > 300) {
         throw new Error('Description must be 300 characters or less');
       }
 
       console.log('[IssueReport] Submitting issue...');
-      console.log('[IssueReport] Has image:', !!imageFile);
+      console.log('[IssueReport] User:', user?.uid || 'anonymous');
+      console.log('[IssueReport] Category:', formData.category);
+      console.log('[IssueReport] Description:', formData.description);
       
       const result = await createIssue(
         {
           category: formData.category,
           description: formData.description,
           isAnonymous: formData.isAnonymous,
-          userId: user?.uid
+          userId: user?.uid || null
         },
-        imageFile
+        null  // No image
       );
 
-      console.log('[IssueReport] ✅ Issue created:', result.id);
-      if (result.imageUrl) {
-        console.log('[IssueReport] ✅ Image URL:', result.imageUrl);
-      } else if (imageFile) {
-        console.warn('[IssueReport] ⚠️ Image was selected but not uploaded');
-      }
+      console.log('[IssueReport] ✅ Issue created successfully! ID:', result.id);
 
       setSuccess(true);
       setTimeout(() => {
@@ -81,7 +61,12 @@ export default function IssueReport() {
       }, 2000);
     } catch (err) {
       console.error('[IssueReport] ❌ Error:', err);
-      setError(err.message);
+      console.error('[IssueReport] Error details:', {
+        message: err.message,
+        code: err.code,
+        stack: err.stack
+      });
+      setError(err.message || 'Failed to submit issue. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -153,29 +138,6 @@ export default function IssueReport() {
             <p className="form-helper">
               {formData.description.length}/300 characters
             </p>
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">Image (Optional)</label>
-            <div className="image-upload">
-              <input
-                type="file"
-                id="image-upload"
-                accept="image/*"
-                onChange={handleImageChange}
-                style={{ display: 'none' }}
-              />
-              <label htmlFor="image-upload" className="image-upload-label">
-                {imagePreview ? (
-                  <img src={imagePreview} alt="Preview" className="image-preview" />
-                ) : (
-                  <div className="image-upload-placeholder">
-                    <span>📷</span>
-                    <span>Add photo</span>
-                  </div>
-                )}
-              </label>
-            </div>
           </div>
 
           {!isAnonymous && user && (

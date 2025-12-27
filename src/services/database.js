@@ -94,9 +94,10 @@ export async function createIssue(issueData, imageFile = null) {
   console.log('[DB] Creating issue...');
   console.log('[DB] Image file:', imageFile ? `${imageFile.name} (${imageFile.size} bytes)` : 'none');
   
-  // Moderate issue description
+  // Moderate issue description (with fallback)
+  let moderation = { safe: true };
   try {
-    const moderation = await moderateContent(issueData.description, 'issue');
+    moderation = await moderateContent(issueData.description, 'issue');
     
     if (!moderation.safe) {
       throw new Error(`Issue rejected: ${moderation.reason}`);
@@ -104,14 +105,24 @@ export async function createIssue(issueData, imageFile = null) {
   } catch (moderationError) {
     console.warn('[DB] Moderation failed, allowing issue:', moderationError.message);
     // Continue even if moderation fails
+    moderation = { safe: true };
   }
   
-  // Categorize and prioritize using AI
-  let categorization = { category: issueData.category, priority: 'Medium', tags: [], summary: '' };
+  // Categorize and prioritize using AI (with fallback)
+  let categorization = { 
+    category: issueData.category || 'Infrastructure', 
+    priority: 'Medium', 
+    tags: ['general'], 
+    summary: issueData.description.substring(0, 100) 
+  };
+  
   try {
-    categorization = await categorizeIssue(issueData.description);
+    const aiCategorization = await categorizeIssue(issueData.description);
+    categorization = aiCategorization;
+    console.log('[DB] ✅ AI categorization:', categorization);
   } catch (categorizationError) {
     console.warn('[DB] Categorization failed, using defaults:', categorizationError.message);
+    // Already have defaults above, continue
   }
   
   let imageUrl = null;
@@ -146,8 +157,8 @@ export async function createIssue(issueData, imageFile = null) {
     reportedBy: issueData.isAnonymous ? null : issueData.userId,
     status: 'Open',
     priority: categorization.priority,
-    tags: categorization.tags || [],
-    summary: categorization.summary || '',
+    tags: categorization.tags || ['general'],
+    summary: categorization.summary || issueData.description.substring(0, 100),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
     statusHistory: [{
@@ -157,42 +168,86 @@ export async function createIssue(issueData, imageFile = null) {
     }]
   };
   
-  console.log('[DB] Creating issue document...');
-  const docRef = await addDoc(collection(db, 'issues'), issue);
-  console.log('[DB] ✅ Issue created:', docRef.id);
+  console.log('[DB] Creating issue document in Firestore...');
+  console.log('[DB] Issue data:', issue);
   
-  return { id: docRef.id, ...issue };
+  try {
+    const docRef = await addDoc(collection(db, 'issues'), issue);
+    console.log('[DB] ✅ Issue created successfully! ID:', docRef.id);
+    
+    return { id: docRef.id, ...issue };
+  } catch (firestoreError) {
+    console.error('[DB] ❌ Firestore error:', firestoreError);
+    console.error('[DB] Error code:', firestoreError.code);
+    console.error('[DB] Error message:', firestoreError.message);
+    throw new Error(`Failed to save issue: ${firestoreError.message}`);
+  }
 }
 
 export async function getIssues(filters = {}) {
-  let q = collection(db, 'issues');
+  console.log('[DB] Getting issues with filters:', filters);
   
-  const constraints = [orderBy('createdAt', 'desc')];
+  // For user-specific queries, don't use orderBy to avoid index requirement
+  if (filters.userId) {
+    console.log('[DB] Fetching issues for user:', filters.userId);
+    
+    const q = query(
+      collection(db, 'issues'),
+      where('reportedBy', '==', filters.userId),
+      ...(filters.limit ? [limit(filters.limit)] : [])
+    );
+    
+    const snapshot = await getDocs(q);
+    const issues = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    
+    console.log('[DB] Found', issues.length, 'issues for user');
+    
+    // Sort by createdAt in memory
+    issues.sort((a, b) => {
+      const aTime = a.createdAt?.toMillis?.() || 0;
+      const bTime = b.createdAt?.toMillis?.() || 0;
+      return bTime - aTime;
+    });
+    
+    return issues;
+  }
+  
+  // For other queries (admin viewing all, filtered by category/status, etc.)
+  let q = collection(db, 'issues');
+  const constraints = [];
   
   if (filters.category) {
-    constraints.unshift(where('category', '==', filters.category));
+    constraints.push(where('category', '==', filters.category));
   }
   
   if (filters.status) {
-    constraints.unshift(where('status', '==', filters.status));
+    constraints.push(where('status', '==', filters.status));
   }
   
   if (filters.priority) {
-    constraints.unshift(where('priority', '==', filters.priority));
-  }
-  
-  if (filters.userId) {
-    constraints.unshift(where('reportedBy', '==', filters.userId));
+    constraints.push(where('priority', '==', filters.priority));
   }
   
   if (filters.limit) {
     constraints.push(limit(filters.limit));
   }
   
-  q = query(q, ...constraints);
+  if (constraints.length > 0) {
+    q = query(q, ...constraints);
+  }
   
   const snapshot = await getDocs(q);
-  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  const issues = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  
+  // Sort in memory
+  issues.sort((a, b) => {
+    const aTime = a.createdAt?.toMillis?.() || 0;
+    const bTime = b.createdAt?.toMillis?.() || 0;
+    return bTime - aTime;
+  });
+  
+  console.log('[DB] Found', issues.length, 'total issues');
+  return issues;
 }
 
 export async function updateIssueStatus(issueId, newStatus, note, adminEmail) {
@@ -779,6 +834,122 @@ export async function getChatStats() {
       const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
       return lastMessage > oneDayAgo;
     }).length
+  };
+}
+
+/**
+ * CHAT REPORTING SYSTEM
+ * Allows users to report inappropriate chats to admin
+ * Admin can view reported chats with full context
+ */
+
+/**
+ * Report a chat for safety reasons
+ * This creates a report that admin can review with full chat history
+ */
+export async function reportChat(chatRoomId, reporterId, reason) {
+  console.log('[DB] Reporting chat:', chatRoomId, 'by user:', reporterId);
+  
+  try {
+    // Get all messages from this chat for admin review
+    const messagesQuery = query(
+      collection(db, 'messages'),
+      where('chatRoomId', '==', chatRoomId),
+      orderBy('createdAt', 'asc')
+    );
+    
+    const messagesSnapshot = await getDocs(messagesQuery);
+    const messages = messagesSnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      // Convert timestamp to ISO string for storage
+      createdAt: doc.data().createdAt?.toDate?.()?.toISOString() || new Date().toISOString()
+    }));
+    
+    // Get chat room info
+    const chatRoomDoc = await getDoc(doc(db, 'chatRooms', chatRoomId));
+    const chatRoomData = chatRoomDoc.exists() ? chatRoomDoc.data() : {};
+    
+    // Create report document
+    const report = {
+      chatRoomId,
+      reporterId,
+      reason,
+      participants: chatRoomData.participants || [],
+      messages, // Full chat history for context
+      status: 'pending', // pending, reviewed, action_taken
+      createdAt: serverTimestamp(),
+      reviewedAt: null,
+      reviewedBy: null,
+      adminNotes: '',
+      actionTaken: '' // warning, chat_deleted, users_suspended, no_action
+    };
+    
+    const reportRef = await addDoc(collection(db, 'chatReports'), report);
+    console.log('[DB] ✅ Chat reported successfully:', reportRef.id);
+    
+    return { id: reportRef.id, ...report };
+  } catch (error) {
+    console.error('[DB] ❌ Error reporting chat:', error);
+    throw new Error(`Failed to report chat: ${error.message}`);
+  }
+}
+
+/**
+ * Get all chat reports (admin only)
+ */
+export async function getAllChatReports() {
+  const q = query(
+    collection(db, 'chatReports'),
+    orderBy('createdAt', 'desc')
+  );
+  
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+}
+
+/**
+ * Get pending chat reports (admin only)
+ */
+export async function getPendingChatReports() {
+  const q = query(
+    collection(db, 'chatReports'),
+    where('status', '==', 'pending'),
+    orderBy('createdAt', 'desc')
+  );
+  
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+}
+
+/**
+ * Update chat report status (admin only)
+ */
+export async function updateChatReportStatus(reportId, status, adminNotes, actionTaken, adminEmail) {
+  const reportRef = doc(db, 'chatReports', reportId);
+  
+  await updateDoc(reportRef, {
+    status,
+    adminNotes,
+    actionTaken,
+    reviewedAt: serverTimestamp(),
+    reviewedBy: adminEmail
+  });
+  
+  console.log('[DB] Chat report updated:', reportId, 'Status:', status);
+}
+
+/**
+ * Get chat report statistics
+ */
+export async function getChatReportStats() {
+  const allReports = await getAllChatReports();
+  
+  return {
+    total: allReports.length,
+    pending: allReports.filter(r => r.status === 'pending').length,
+    reviewed: allReports.filter(r => r.status === 'reviewed').length,
+    actionTaken: allReports.filter(r => r.status === 'action_taken').length
   };
 }
 
